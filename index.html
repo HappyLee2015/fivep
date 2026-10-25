@@ -105,9 +105,14 @@
     .howto-grid { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin-top: 16px; color: var(--muted); font-size: 11px; }
     .howto-grid strong { color: var(--ink); font: 10px "Cascadia Code", Consolas, monospace; }
     .mobile-controls { position: fixed; z-index: 5; right: 12px; bottom: 10px; left: 12px; display: none; justify-content: space-between; align-items: end; pointer-events: none; }
-    .touch-pad, .touch-actions { display: grid; gap: 5px; pointer-events: auto; }
-    .touch-pad { grid-template-columns: repeat(3, 39px); grid-template-rows: repeat(2, 36px); }
+    .touch-actions { display: grid; gap: 5px; pointer-events: auto; }
     .touch-actions { grid-template-columns: repeat(2, 54px); }
+    .touch-stick { position: relative; display: grid; width: 116px; height: 116px; flex: 0 0 auto; place-items: center; padding: 0; overflow: hidden; border: 1px solid rgba(116, 217, 176, .34); border-radius: 50%; background: radial-gradient(circle, rgba(116, 217, 176, .12), rgba(8, 20, 17, .56) 68%); touch-action: none; pointer-events: auto; }
+    .touch-stick::before, .touch-stick::after { position: absolute; content: ""; border: 1px solid rgba(116, 217, 176, .18); border-radius: 50%; pointer-events: none; }
+    .touch-stick::before { inset: 17px; }
+    .touch-stick::after { inset: 35px; border-style: dashed; }
+    .touch-stick-knob { position: absolute; z-index: 1; width: 42px; height: 42px; border: 1px solid rgba(166, 240, 203, .8); border-radius: 50%; background: radial-gradient(circle at 35% 30%, rgba(179, 255, 209, .9), rgba(60, 166, 120, .66)); box-shadow: 0 0 16px rgba(91, 224, 153, .28); pointer-events: none; transition: transform .045s linear; }
+    .touch-stick-label { position: absolute; bottom: 14px; color: rgba(200, 228, 210, .55); font: 7px "Cascadia Code", Consolas, monospace; letter-spacing: .08em; pointer-events: none; }
     .touch-button { display: grid; place-items: center; border: 1px solid rgba(129, 222, 209, .38); border-radius: 3px; background: rgba(8, 23, 30, .76); color: var(--ink); font-size: 11px; touch-action: none; }
     .touch-button:active { background: rgba(74, 158, 145, .4); }
     #notice { position: fixed; z-index: 10; top: 76px; left: 50%; transform: translate(-50%, -8px); padding: 7px 11px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 11px; opacity: 0; pointer-events: none; transition: .18s ease; }
@@ -241,10 +246,10 @@
     <button class="action-button boom-button" id="boom-button" type="button" title="Start five-second all-in charge (B)"><strong>絕</strong><span>B · ALL-IN</span></button>
   </div>
   <div class="mobile-controls" aria-label="Touch controls">
-    <div class="touch-pad">
-      <span></span><button class="touch-button" data-key="ArrowUp" type="button">上</button><span></span>
-      <button class="touch-button" data-key="ArrowLeft" type="button">左</button><button class="touch-button" data-key="ArrowDown" type="button">下</button><button class="touch-button" data-key="ArrowRight" type="button">右</button>
-    </div>
+    <button class="touch-stick" id="touch-stick" type="button" aria-label="移动战机">
+      <span class="touch-stick-knob" id="touch-stick-knob"></span>
+      <span class="touch-stick-label">MOVE</span>
+    </button>
     <div class="touch-actions">
       <button class="touch-button" data-action="lock" type="button">狙</button><button class="touch-button" data-action="capture" type="button">捕</button><button class="touch-button" data-action="bomb" type="button">爆</button><button class="touch-button" data-action="boom" type="button">轟</button>
     </div>
@@ -323,7 +328,7 @@
       const state = {
         w: innerWidth, h: innerHeight, dpr: 1, running: true, paused: false,
         stage: 1, stageTime: 0, stageDuration: 35, score: 0, chain: 0, chainTimer: 0,
-        position: 1, equity: 100, stopLoss: true,
+        position: 1, equity: 100, stopLoss: true, touchVector: { x: 0, y: 0 },
         enemies: [], bullets: [], playerShots: [], lasers: [], particles: [], pickups: [], captured: [], boomBombs: [], boomBlasts: [],
         boss: null, craft: '撃', keys: new Set(), pointer: { x: innerWidth * 0.7, y: innerHeight * 0.5 },
         lockTargets: [], fireTimer: 0, lockTimer: 0, spawnTimer: 0.8, invulnerable: 0, bombTime: 0,
@@ -1157,8 +1162,13 @@
           updateAutoPlayActions(delta);
         } else {
           const speed = (state.keys.has('ShiftLeft') ? 315 : 250) * (state.craft === '漢' ? .87 : 1);
-          const horizontal = Number(state.keys.has('ArrowRight') || state.keys.has('KeyD')) - Number(state.keys.has('ArrowLeft') || state.keys.has('KeyA'));
-          const vertical = Number(state.keys.has('ArrowDown') || state.keys.has('KeyS')) - Number(state.keys.has('ArrowUp') || state.keys.has('KeyW'));
+          let horizontal = Number(state.keys.has('ArrowRight') || state.keys.has('KeyD')) - Number(state.keys.has('ArrowLeft') || state.keys.has('KeyA')) + state.touchVector.x;
+          let vertical = Number(state.keys.has('ArrowDown') || state.keys.has('KeyS')) - Number(state.keys.has('ArrowUp') || state.keys.has('KeyW')) + state.touchVector.y;
+          const inputLength = Math.hypot(horizontal, vertical);
+          if (inputLength > 1) {
+            horizontal /= inputLength;
+            vertical /= inputLength;
+          }
           player.x = clamp(player.x + horizontal * speed * delta, 38, width * .74);
           player.y = clamp(player.y + vertical * speed * delta, 78, height - (innerWidth < 760 ? 124 : 80));
         }
@@ -1708,6 +1718,38 @@
       }
       canvas.addEventListener('pointermove', event => { state.pointer = worldPoint(event); });
       canvas.addEventListener('contextmenu', event => { event.preventDefault(); state.pointer = worldPoint(event); lockTarget(); });
+      const touchStick = document.getElementById('touch-stick');
+      const touchStickKnob = document.getElementById('touch-stick-knob');
+      let touchStickPointer = null;
+      function updateTouchStick(event) {
+        const rect = touchStick.getBoundingClientRect();
+        const maxTravel = rect.width * .31;
+        const dx = event.clientX - (rect.left + rect.width / 2);
+        const dy = event.clientY - (rect.top + rect.height / 2);
+        const length = Math.hypot(dx, dy);
+        const scale = length > maxTravel ? maxTravel / length : 1;
+        const stickX = dx * scale;
+        const stickY = dy * scale;
+        state.touchVector = { x: stickX / maxTravel, y: stickY / maxTravel };
+        touchStickKnob.style.transform = `translate(${stickX}px, ${stickY}px)`;
+      }
+      function releaseTouchStick() {
+        touchStickPointer = null;
+        state.touchVector = { x: 0, y: 0 };
+        touchStickKnob.style.transform = 'translate(0, 0)';
+      }
+      touchStick.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        touchStickPointer = event.pointerId;
+        touchStick.setPointerCapture(event.pointerId);
+        updateTouchStick(event);
+      });
+      touchStick.addEventListener('pointermove', event => {
+        if (event.pointerId === touchStickPointer) updateTouchStick(event);
+      });
+      touchStick.addEventListener('pointerup', releaseTouchStick);
+      touchStick.addEventListener('pointercancel', releaseTouchStick);
+      touchStick.addEventListener('lostpointercapture', releaseTouchStick);
 
       const keyActions = {
         KeyF: lockTarget,
